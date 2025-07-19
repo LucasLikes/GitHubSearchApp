@@ -1,0 +1,6 @@
+@GitHubSearchApp.API_HostAddress = http://localhost:5003
+
+GET {{GitHubSearchApp.API_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
