@@ -1,4 +1,5 @@
-﻿using System.ComponentModel.DataAnnotations;
+﻿using Swashbuckle.AspNetCore.Annotations;
+using System.ComponentModel.DataAnnotations;
 
 namespace GitHubSearchApp.API.DTOs
 {
@@ -14,6 +15,7 @@ namespace GitHubSearchApp.API.DTOs
 
         [Required]
         [Url]
+        [SwaggerSchema(Description = "URL do repositorio")]
         public string HtmlUrl { get; set; } = string.Empty;
 
         [Range(0, int.MaxValue)]

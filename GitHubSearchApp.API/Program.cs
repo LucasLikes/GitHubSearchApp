@@ -3,6 +3,7 @@ using GitHubSearchApp.Domain.Interfaces;
 using GitHubSearchApp.Infrastructure.Repositories;
 using GitHubSearchApp.Application.Services;
 using Microsoft.OpenApi.Models;
+using System.Reflection;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -11,6 +12,9 @@ var swaggerConfig = builder.Configuration.GetSection("Swagger");
 // Configuração de serviços
 builder.Services.AddHttpClient();
 builder.Services.AddSingleton<IGitHubRepository, GitHubRepository>();
+builder.Services.AddSingleton<IGitHubService, GitHubService>();
+builder.Services.AddSingleton<IFavoritosService, FavoritosService>();
+builder.Services.AddSingleton<IRelevanciaService, RelevanciaService>();
 builder.Services.AddSingleton<IRepositorioService, RepositorioService>();
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
@@ -54,6 +58,17 @@ if (app.Environment.IsDevelopment())
 app.UseHttpsRedirection();
 app.UseCors(); // Habilita CORS
 app.UseAuthorization();
-app.MapControllers(); // Roteia para os controllers
+try
+{
+    app.MapControllers(); // Roteia para os controllers
+}
+catch (ReflectionTypeLoadException ex)
+{
+    foreach (var loaderException in ex.LoaderExceptions)
+    {
+        Console.WriteLine(loaderException.Message);
+    }
+    throw; // Rethrow the exception after logging
+}
 
 app.Run();

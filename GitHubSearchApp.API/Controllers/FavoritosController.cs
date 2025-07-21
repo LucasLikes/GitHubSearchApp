@@ -4,6 +4,7 @@ using GitHubSearchApp.Domain.Entities;
 using Microsoft.AspNetCore.Mvc;
 using GitHubSearchApp.Infrastructure.Logging;
 
+
 [ApiController]
 [Route("api/[controller]")]
 public class FavoritosController : ControllerBase
@@ -49,17 +50,17 @@ public class FavoritosController : ControllerBase
         {
             var repo = new Repository(dto.Id, dto.Name, dto.Description, dto.HtmlUrl, dto.Stars, dto.Forks, dto.Watchers);
             await _repositorioService.AdicionarFavorito(repo);
-            return Ok("Repositório favoritado.");
+            return Ok(new { sucesso = true, mensagem = "Repositorio favoritado." });
         }
         catch (InvalidOperationException ex)
         {
-            FileLogger.LogError( ex, $"Erro ao favoritar repositório com ID: {dto.Id}\n{ex.Message}\n{ex.StackTrace}");
-            return BadRequest(ex.Message);
+            FileLogger.LogError( ex, $"Erro ao favoritar repositorio com ID: {dto.Id}\n{ex.Message}\n{ex.StackTrace}");
+            return BadRequest(new { sucesso = false, mensagem = ex.Message });
         }
         catch (Exception ex)
         {
-            FileLogger.LogError(ex, $"Erro inesperado ao favoritar repositório com ID: {dto.Id}");
-            return StatusCode(500, "Erro interno no servidor.");
+            FileLogger.LogError(ex, $"Erro inesperado ao favoritar repositorio com ID: {dto.Id}");
+            return StatusCode(500, new { sucesso = false, mensagem = "Erro interno no servidor." });
         }
     }
 
@@ -72,17 +73,17 @@ public class FavoritosController : ControllerBase
         try
         {
             await _repositorioService.RemoverFavorito(repoId);
-            return Ok("Repositório removido dos favoritos com sucesso.");
+            return Ok(new { sucesso = true, mensagem = "Repositorio removido dos favoritos com sucesso." });
         }
         catch (InvalidOperationException ex)
         {
-            FileLogger.LogError(ex, $"Erro ao remover repositório favorito com ID: {repoId}");
+            FileLogger.LogError(ex, $"Erro ao remover repositorio favorito com ID: {repoId}");
             return BadRequest(ex.Message);
         }
         catch (Exception ex)
         {
-            FileLogger.LogError(ex, $"inesperado ao remover repositório favorito com ID: {repoId}");
-            return StatusCode(500, "Erro interno no servidor.");
+            FileLogger.LogError(ex, $"inesperado ao remover repositorio favorito com ID: {repoId}");
+            return StatusCode(500, new { sucesso = false, mensagem = "Erro interno no servidor." });
         }
     }
 }

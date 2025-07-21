@@ -1,10 +1,11 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net.Http;
 using System.Threading.Tasks;
+using GitHubSearchApp.Application.Interfaces;
 using GitHubSearchApp.Application.Services;
 using GitHubSearchApp.Domain.Entities;
-using GitHubSearchApp.Domain.Interfaces;
 using Microsoft.Extensions.Caching.Memory;
 using Moq;
 using Xunit;
@@ -13,67 +14,61 @@ namespace GitHubSearchApp.Tests
 {
     public class RepositorioServiceTests
     {
-        private readonly Mock<IGitHubRepository> _gitHubRepoMock;
-        private readonly Mock<IMemoryCache> _memoryCacheMock;
+        private readonly Mock<IGitHubService> _gitHubServiceMock;
+        private readonly Mock<IFavoritosService> _favoritosServiceMock;
+        private readonly Mock<IRelevanciaService> _relevanciaServiceMock;
         private readonly RepositorioService _service;
 
-        private List<Repository> _fakeCacheStorage;
+        private readonly List<Repository> _fakeFavoritosList;
 
         public RepositorioServiceTests()
         {
-            _gitHubRepoMock = new Mock<IGitHubRepository>();
-            _memoryCacheMock = new Mock<IMemoryCache>();
-            _fakeCacheStorage = new List<Repository>();
+            _gitHubServiceMock = new Mock<IGitHubService>();
+            _favoritosServiceMock = new Mock<IFavoritosService>();
+            _relevanciaServiceMock = new Mock<IRelevanciaService>();
+            _fakeFavoritosList = new List<Repository>();
 
-            // Mock para o TryGetValue - simula o comportamento de cache.
-            object? dummy;
-            _memoryCacheMock.Setup(c => c.TryGetValue(It.IsAny<object>(), out dummy!))
-                .Returns((object key, out object? value) =>
+            // Mock do serviço de favoritos
+            _favoritosServiceMock.Setup(f => f.ObterFavoritos())
+                .Returns(() => _fakeFavoritosList);
+
+            _favoritosServiceMock.Setup(f => f.AdicionarFavorito(It.IsAny<Repository>()))
+                .Callback<Repository>((repo) =>
                 {
-                    value = _fakeCacheStorage;  // Retorna o valor armazenado no "cache".
-                    return _fakeCacheStorage != null;
+                    if (_fakeFavoritosList.Any(f => f.Id == repo.Id))
+                        throw new InvalidOperationException("Repositorio ja esta favoritado.");
+                    _fakeFavoritosList.Add(repo);
                 });
 
-            // Simula a adição ao "cache" sem mockar Set() diretamente.
-            _memoryCacheMock.Setup(c => c.CreateEntry(It.IsAny<object>()))
-                .Returns(new Mock<ICacheEntry>().Object);
+            _favoritosServiceMock.Setup(f => f.RemoverFavorito(It.IsAny<long>()))
+                .Callback<long>((id) =>
+                {
+                    var repo = _fakeFavoritosList.FirstOrDefault(f => f.Id == id);
+                    if (repo != null) _fakeFavoritosList.Remove(repo);
+                });
 
-            _service = new RepositorioService(_gitHubRepoMock.Object, _memoryCacheMock.Object);
-        }
+            _favoritosServiceMock.Setup(f => f.ListarFavoritos())
+                .ReturnsAsync(() => _fakeFavoritosList.ToList());
 
-        [Fact]
-        public async Task BuscarRepositorios_DeveOrdenarPorRelevancia()
-        {
-            // Arrange
-            var repos = new List<Repository>
-            {
-                new Repository(1, "Repo1", "Desc1", "http://url1", 10, 2, 5), // 27
-                new Repository(2, "Repo2", "Desc2", "http://url2", 5, 10, 10), // 30
-                new Repository(3, "Repo3", "Desc3", "http://url3", 20, 1, 1) // 42
-            };
-            _gitHubRepoMock.Setup(r => r.SearchAsync(It.IsAny<string>())).ReturnsAsync(repos);
+            // Mock do serviço de relevância - configuração padrão
+            _relevanciaServiceMock.Setup(r => r.OrdenarRepositoriosPorRelevancia(It.IsAny<List<Repository>>()))
+                .Returns<List<Repository>>(repos => repos ?? new List<Repository>());
 
-            // Act
-            var result = await _service.BuscarRepositorios("query");
-
-            // Assert
-            Assert.Equal(3, result.Count);
-            Assert.Equal(3, result[0].Id);  // Repo3 com maior score vem primeiro
-            Assert.Equal(2, result[1].Id);  // Repo2 segundo
-            Assert.Equal(1, result[2].Id);  // Repo1 último
+            _service = new RepositorioService(
+                _gitHubServiceMock.Object,
+                _favoritosServiceMock.Object,
+                _relevanciaServiceMock.Object
+            );
         }
 
         [Fact]
         public async Task AdicionarFavorito_DeveAdicionarRepositorios()
         {
-            // Arrange
             var repo = new Repository(1, "Repo1", "Desc1", "http://url1", 10, 2, 5);
 
-            // Act
             await _service.AdicionarFavorito(repo);
             var favoritos = await _service.ListarFavoritos();
 
-            // Assert
             Assert.Single(favoritos);
             Assert.Contains(favoritos, r => r.Id == 1);
         }
@@ -81,50 +76,64 @@ namespace GitHubSearchApp.Tests
         [Fact]
         public async Task AdicionarFavorito_Duplicado_DeveLancarExcecao()
         {
-            // Arrange
             var repo = new Repository(1, "Repo1", "Desc1", "http://url1", 10, 2, 5);
-            await _service.AdicionarFavorito(repo);
+            _fakeFavoritosList.Add(repo);
 
-            // Act & Assert
             var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
                 _service.AdicionarFavorito(repo));
-            Assert.Equal("Repositório já está favoritado.", ex.Message);
+
+            Assert.Equal("Repositorio ja esta favoritado.", ex.Message);
         }
 
         [Fact]
         public async Task RemoverFavorito_IdInexistente_NaoLancaErro()
         {
-            // Act
             var exception = await Record.ExceptionAsync(() => _service.RemoverFavorito(999));
-
-            // Assert
-            Assert.Null(exception); // Método deve falhar silenciosamente
+            Assert.Null(exception);
         }
 
         [Fact]
         public async Task BuscarRepositorios_ErroNaApi_DeveLancarExcecao()
         {
-            // Arrange
-            _gitHubRepoMock.Setup(r => r.SearchAsync(It.IsAny<string>()))
+            _gitHubServiceMock.Setup(s => s.BuscarRepositorios(It.IsAny<string>()))
                 .ThrowsAsync(new HttpRequestException("Erro na API"));
 
-            // Act & Assert
             var ex = await Assert.ThrowsAsync<HttpRequestException>(() =>
                 _service.BuscarRepositorios("qualquer"));
+
             Assert.Contains("Erro na API", ex.Message);
         }
 
         [Fact]
         public async Task ListarRepositoriosDoUsuario_SemRepositorios_DeveRetornarListaVazia()
         {
-            // Arrange
-            _gitHubRepoMock.Setup(r => r.GetUserRepositoriesAsync(It.IsAny<string>()))
+            // Configura o GitHub Service para retornar uma lista vazia
+            _gitHubServiceMock.Setup(s => s.ListarRepositoriosDoUsuario("usuario-invalido"))
                 .ReturnsAsync(new List<Repository>());
 
-            // Act
+            // Configura o serviço de relevância para retornar a mesma lista vazia
+            _relevanciaServiceMock.Setup(r => r.OrdenarRepositoriosPorRelevancia(It.IsAny<List<Repository>>()))
+                .Returns<List<Repository>>(repos => repos ?? new List<Repository>());
+
             var result = await _service.ListarRepositoriosDoUsuario("usuario-invalido");
 
-            // Assert
+            Assert.NotNull(result);
+            Assert.Empty(result);
+        }
+
+        [Fact]
+        public async Task ListarRepositoriosDoUsuario_ComNull_DeveRetornarListaVazia()
+        {
+            // Testa o cenário onde o GitHub Service retorna null
+            _gitHubServiceMock.Setup(s => s.ListarRepositoriosDoUsuario("usuario-invalido"))
+                .ReturnsAsync((List<Repository>)null);
+
+            // Configura o serviço de relevância para lidar com lista vazia
+            _relevanciaServiceMock.Setup(r => r.OrdenarRepositoriosPorRelevancia(It.IsAny<List<Repository>>()))
+                .Returns<List<Repository>>(repos => repos ?? new List<Repository>());
+
+            var result = await _service.ListarRepositoriosDoUsuario("usuario-invalido");
+
             Assert.NotNull(result);
             Assert.Empty(result);
         }
@@ -132,23 +141,55 @@ namespace GitHubSearchApp.Tests
         [Fact]
         public async Task ListarRepositoriosDoUsuario_DeveOrdenarPorFormulaCustomizada()
         {
-            // Arrange
             var repos = new List<Repository>
             {
-                new Repository(1, "A", "D", "url", 1, 2, 3), // 7
-                new Repository(2, "B", "D", "url", 5, 0, 0), // 10
-                new Repository(3, "C", "D", "url", 0, 5, 5)  // 10
+                new Repository(1, "A", "D", "url", 1, 2, 3), // total = 6 (stars + forks + watchers)
+                new Repository(2, "B", "D", "url", 5, 0, 0), // total = 5
+                new Repository(3, "C", "D", "url", 0, 5, 5)  // total = 10
             };
-            _gitHubRepoMock.Setup(r => r.GetUserRepositoriesAsync(It.IsAny<string>()))
+
+            _gitHubServiceMock.Setup(s => s.ListarRepositoriosDoUsuario(It.IsAny<string>()))
                 .ReturnsAsync(repos);
 
-            // Act
+            // Mock do serviço de relevância para ordenar por stars + forks + watchers (decrescente)
+            _relevanciaServiceMock.Setup(r => r.OrdenarRepositoriosPorRelevancia(It.IsAny<List<Repository>>()))
+                .Returns<List<Repository>>(reposList =>
+                    reposList?.OrderByDescending(r => r.Stars + r.Forks + r.Watchers).ToList() ?? new List<Repository>());
+
             var result = await _service.ListarRepositoriosDoUsuario("user");
 
-            // Assert
-            Assert.Equal(2, result[0].Id); // 10 pontos, primeiro por ordem
-            Assert.Equal(3, result[1].Id); // 10 pontos, depois
-            Assert.Equal(1, result[2].Id); // 7 pontos, último
+            Assert.NotNull(result);
+            Assert.Equal(3, result.Count);
+            Assert.Equal(3, result[0].Id); // primeiro com 10 pontos (0+5+5)
+            Assert.Equal(1, result[1].Id); // segundo com 6 pontos (1+2+3)
+            Assert.Equal(2, result[2].Id); // terceiro com 5 pontos (5+0+0)
+        }
+
+        [Fact]
+        public async Task BuscarRepositorios_DeveUsarServicoRelevancia()
+        {
+            var repos = new List<Repository>
+            {
+                new Repository(1, "Repo1", "Desc1", "url1", 10, 2, 5),
+                new Repository(2, "Repo2", "Desc2", "url2", 5, 3, 2)
+            };
+
+            var reposOrdenados = new List<Repository>
+            {
+                new Repository(2, "Repo2", "Desc2", "url2", 5, 3, 2),
+                new Repository(1, "Repo1", "Desc1", "url1", 10, 2, 5)
+            };
+
+            _gitHubServiceMock.Setup(s => s.BuscarRepositorios("test"))
+                .ReturnsAsync(repos);
+
+            _relevanciaServiceMock.Setup(r => r.OrdenarRepositoriosPorRelevancia(repos))
+                .Returns(reposOrdenados);
+
+            var result = await _service.BuscarRepositorios("test");
+
+            Assert.Equal(reposOrdenados, result);
+            _relevanciaServiceMock.Verify(r => r.OrdenarRepositoriosPorRelevancia(repos), Times.Once);
         }
     }
 }

@@ -25,7 +25,7 @@ public class ReposController : ControllerBase
     public async Task<IActionResult> BuscarRepos([FromQuery] string nome)
     {
         if (string.IsNullOrWhiteSpace(nome))
-            return BadRequest("Nome é obrigatório.");
+            return BadRequest("Nome é obrigatorio.");
 
         try
         {
@@ -44,7 +44,7 @@ public class ReposController : ControllerBase
         }
         catch (Exception ex)
         {
-            FileLogger.LogError(ex, $"Erro ao buscar repositórios com o nome: {nome}");
+            FileLogger.LogError(ex, $"Erro ao buscar repositorios com o nome: {nome}");
             return StatusCode(500, "Erro interno no servidor.");
         }
     }
