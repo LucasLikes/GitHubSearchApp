@@ -1,6 +1,7 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using GitHubSearchApp.Application.Interfaces;
-using GitHubSearchApp.Domain.Entities;
+using GitHubSearchApp.API.DTOs;
+using GitHubSearchApp.Infrastructure.Logging;
 
 namespace GitHubSearchApp.API.Controllers;
 
@@ -26,8 +27,25 @@ public class ReposController : ControllerBase
         if (string.IsNullOrWhiteSpace(nome))
             return BadRequest("Nome é obrigatório.");
 
-        var repos = await _repositorioService.BuscarRepositorios(nome);
+        try
+        {
+            var repos = await _repositorioService.BuscarRepositorios(nome);
+            var result = repos.Select(r => new RepositoryResponseDTO
+            {
+                Id = r.Id,
+                Name = r.Name,
+                HtmlUrl = r.HtmlUrl,
+                Stars = r.Stars,
+                Forks = r.Forks,
+                Watchers = r.Watchers
+            });
 
-        return Ok(repos);
+            return Ok(result);
+        }
+        catch (Exception ex)
+        {
+            FileLogger.LogError(ex, $"Erro ao buscar repositórios com o nome: {nome}");
+            return StatusCode(500, "Erro interno no servidor.");
+        }
     }
 }

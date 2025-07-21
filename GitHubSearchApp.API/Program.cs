@@ -2,18 +2,32 @@ using GitHubSearchApp.Application.Interfaces;
 using GitHubSearchApp.Domain.Interfaces;
 using GitHubSearchApp.Infrastructure.Repositories;
 using GitHubSearchApp.Application.Services;
+using Microsoft.OpenApi.Models;
 
 var builder = WebApplication.CreateBuilder(args);
 
+var swaggerConfig = builder.Configuration.GetSection("Swagger");
+
 // Configuração de serviços
-builder.Services.AddHttpClient(); // Adiciona suporte a IHttpClientFactory
+builder.Services.AddHttpClient();
+builder.Services.AddSingleton<IGitHubRepository, GitHubRepository>();
+builder.Services.AddSingleton<IRepositorioService, RepositorioService>();
+builder.Services.AddControllers();
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddMemoryCache();
 
-builder.Services.AddSingleton<IGitHubRepository, GitHubRepository>(); // Registra o repositório GitHub
-builder.Services.AddSingleton<IRepositorioService, RepositorioService>(); // Registra o serviço de negócio
+builder.Services.AddSwaggerGen(c =>
+{
+    c.SwaggerDoc(swaggerConfig["Version"] ?? "v1", new OpenApiInfo
+    {
+        Title = swaggerConfig["Title"] ?? "GitHub Search API",
+        Version = swaggerConfig["Version"] ?? "v1"
+    });
 
-builder.Services.AddControllers(); // Habilita uso de controllers
-builder.Services.AddEndpointsApiExplorer(); // Para documentação minimal APIs
-builder.Services.AddSwaggerGen(); // Swagger/OpenAPI
+    var xmlFile = $"{System.Reflection.Assembly.GetExecutingAssembly().GetName().Name}.xml";
+    var xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
+    c.IncludeXmlComments(xmlPath);
+});
 
 builder.Services.AddCors(options =>
 {
@@ -31,14 +45,15 @@ var app = builder.Build();
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
-    app.UseSwaggerUI();
+    app.UseSwaggerUI(c =>
+    {
+        c.SwaggerEndpoint($"/swagger/{swaggerConfig["Version"] ?? "v1"}/swagger.json", swaggerConfig["Title"] ?? "GitHub Search API");
+    });
 }
 
 app.UseHttpsRedirection();
-
 app.UseCors(); // Habilita CORS
 app.UseAuthorization();
-
 app.MapControllers(); // Roteia para os controllers
 
 app.Run();

@@ -1,6 +1,9 @@
 using GitHubSearchApp.Application.Interfaces;
+using GitHubSearchApp.Application.Utils;
 using GitHubSearchApp.Domain.Entities;
 using GitHubSearchApp.Domain.Interfaces;
+using GitHubSearchApp.Infrastructure.Logging;
+using Microsoft.Extensions.Caching.Memory;
 
 
 namespace GitHubSearchApp.Application.Services
@@ -8,53 +11,106 @@ namespace GitHubSearchApp.Application.Services
     public class RepositorioService : IRepositorioService
     {
         private readonly IGitHubRepository _gitHubRepository;
-        private readonly List<Repository> _favoritos = new();
-
-        public RepositorioService(IGitHubRepository gitHubRepository)
+        private readonly IMemoryCache _cache;
+        private const string FavoritosKey = "favoritos";
+        public RepositorioService(IGitHubRepository gitHubRepository, IMemoryCache cache)
         {
             _gitHubRepository = gitHubRepository;
+            _cache = cache;
         }
 
         public async Task<List<Repository>> BuscarRepositorios(string query)
         {
-            var repos = await _gitHubRepository.SearchAsync(query);
+            FileLogger.Log($"Iniciando busca por repositorios com query: {query}");
 
-            // Lógica de relevância: estrelas * 2 + forks + watchers
-            return repos.OrderByDescending(r => r.Stars * 2 + r.Forks + r.Watchers).ToList();
+            try
+            {
+                var repos = await _gitHubRepository.SearchAsync(query);
+                var ordenados = repos.OrderByDescending(r => RelevanceCalculator.Calcular(r)).ToList();
+
+                FileLogger.Log($"Busca finalizada. {ordenados.Count} repositorios encontrados.");
+                return ordenados;
+            }
+            catch (Exception ex)
+            {
+                FileLogger.LogError(ex, $"Erro ao buscar repositorios para a query: {query}");
+                throw;
+            }
         }
-
-        // Outros métodos usando a lista _favoritos...
 
         public Task AdicionarFavorito(Repository repo)
         {
-            if (!_favoritos.Any(f => f.Id == repo.Id))
-                _favoritos.Add(repo);
+            var favoritos = ObterFavoritos();
+
+            if (!favoritos.Any(f => f.Id == repo.Id))
+            {
+                favoritos.Add(repo);
+                _cache.Set(FavoritosKey, favoritos);
+                FileLogger.Log($"Repositório favoritado: {repo.Name} (ID: {repo.Id})");
+            }
             else
+            {
+                FileLogger.Log($"Tentativa de favoritar repositório já existente: {repo.Name} (ID: {repo.Id})");
                 throw new InvalidOperationException("Repositório já está favoritado.");
+            }
 
             return Task.CompletedTask;
         }
 
         public Task RemoverFavorito(long repoId)
         {
-            var repo = _favoritos.FirstOrDefault(f => f.Id == repoId);
+            var favoritos = ObterFavoritos();
+
+            var repo = favoritos.FirstOrDefault(f => f.Id == repoId);
             if (repo != null)
-                _favoritos.Remove(repo);
+            {
+                favoritos.Remove(repo);
+                _cache.Set(FavoritosKey, favoritos);
+                FileLogger.Log($"Repositorio removido dos favoritos: {repo.Name} (ID: {repo.Id})");
+            }
+            else
+            {
+                FileLogger.Log($"Tentativa de remover favorito que nao existe. ID: {repoId}");
+            }
 
             return Task.CompletedTask;
         }
 
         public Task<List<Repository>> ListarFavoritos()
         {
-            return Task.FromResult(_favoritos.ToList());
+            var favoritos = ObterFavoritos();
+            FileLogger.Log($"Listando favoritos. Total: {favoritos.Count}");
+            return Task.FromResult(favoritos);
         }
 
         public async Task<List<Repository>> ListarRepositoriosDoUsuario(string username)
         {
-            var repos = await _gitHubRepository.GetUserRepositoriesAsync(username);
+            FileLogger.Log($"Buscando repositorios do usuario: {username}");
 
-            // Ordenar também por relevância, se quiser reutilizar lógica:
-            return repos.OrderByDescending(r => r.Stars * 2 + r.Forks + r.Watchers).ToList();
+            try
+            {
+                var repos = await _gitHubRepository.GetUserRepositoriesAsync(username);
+                var ordenados = repos.OrderByDescending(r => r.Stars * 2 + r.Forks + r.Watchers).ToList();
+
+                FileLogger.Log($"Foram encontrados {ordenados.Count} repositorios para o usrio: {username}");
+                return ordenados;
+            }
+            catch (Exception ex)
+            {
+                FileLogger.LogError(ex, $"Erro ao buscar repositorios do usuario: {username}");
+                throw;
+            }
+        }
+
+        private List<Repository> ObterFavoritos()
+        {
+            if (!_cache.TryGetValue(FavoritosKey, out List<Repository>? favoritos))
+            {
+                favoritos = new List<Repository>();
+                _cache.Set(FavoritosKey, favoritos);
+            }
+
+            return favoritos;
         }
     }
 }

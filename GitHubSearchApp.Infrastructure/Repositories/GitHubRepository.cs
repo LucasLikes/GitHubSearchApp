@@ -1,12 +1,9 @@
 ﻿using GitHubSearchApp.Domain.Entities;
 using GitHubSearchApp.Domain.Interfaces;
 using System;
-using System.Collections.Generic;
-using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text.Json;
-using System.Text.Json.Serialization;
-using System.Threading.Tasks;
+using GitHubSearchApp.Infrastructure.Logging;
 
 namespace GitHubSearchApp.Infrastructure.Repositories
 {
@@ -40,39 +37,51 @@ namespace GitHubSearchApp.Infrastructure.Repositories
         public async Task<IReadOnlyList<Repository>> SearchAsync(string query)
         {
             if (string.IsNullOrWhiteSpace(query))
-                throw new ArgumentException("Query não pode ser vazia.", nameof(query));
+                throw new ArgumentException("Query nao pode ser vazia.", nameof(query));
 
-            var requestUri = $"https://api.github.com/search/repositories?q={Uri.EscapeDataString(query)}";
-            var response = await _httpClient.GetAsync(requestUri);
+            FileLogger.Log($"Iniciando busca de repositorios com query: '{query}'");
 
-            if (!response.IsSuccessStatusCode)
-                throw new HttpRequestException($"Erro ao buscar repositórios: {response.StatusCode}");
-
-            var json = await response.Content.ReadAsStringAsync();
-
-            Console.WriteLine(json);
-
-            var searchResult = JsonSerializer.Deserialize<GitHubSearchResult>(json,
-                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-
-            var list = new List<Repository>();
-
-            foreach (var item in searchResult?.Items ?? new List<GitHubRepoItem>())
+            try
             {
-                if (string.IsNullOrWhiteSpace(item.name) || string.IsNullOrWhiteSpace(item.html_url))
-                    continue;
+                var requestUri = $"https://api.github.com/search/repositories?q={Uri.EscapeDataString(query)}";
+                var response = await _httpClient.GetAsync(requestUri);
 
-                list.Add(new Repository(
-                    id: item.id,
-                    name: item.name,
-                    description: item.description ?? string.Empty,
-                    htmlUrl: item.html_url,
-                    stars: item.stargazers_count,
-                    forks: item.forks_count,
-                    watchers: item.watchers_count));
+                if (!response.IsSuccessStatusCode)
+                {
+                    var errorMsg = $"Erro ao buscar repositorios: {response.StatusCode}";
+                    FileLogger.Log(errorMsg, "ERROR");
+                    throw new HttpRequestException(errorMsg);
+                }
+
+                var json = await response.Content.ReadAsStringAsync();
+
+                var searchResult = JsonSerializer.Deserialize<GitHubSearchResult>(json,
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+                var list = new List<Repository>();
+
+                foreach (var item in searchResult?.Items ?? new List<GitHubRepoItem>())
+                {
+                    if (string.IsNullOrWhiteSpace(item.name) || string.IsNullOrWhiteSpace(item.html_url))
+                        continue;
+
+                    list.Add(new Repository(
+                        id: item.id,
+                        name: item.name,
+                        description: item.description ?? string.Empty,
+                        htmlUrl: item.html_url,
+                        stars: item.stargazers_count,
+                        forks: item.forks_count,
+                        watchers: item.watchers_count));
+                }
+
+                return list;
             }
-
-            return list;
+            catch (Exception ex)
+            {
+                FileLogger.LogError(ex, $"Erro na busca de repositórios com query: '{query}'");
+                throw;
+            }
         }
 
         /// <summary>
@@ -81,39 +90,51 @@ namespace GitHubSearchApp.Infrastructure.Repositories
         public async Task<IReadOnlyList<Repository>> GetUserRepositoriesAsync(string username)
         {
             if (string.IsNullOrWhiteSpace(username))
-                throw new ArgumentException("Nome de usuário não pode ser vazio.", nameof(username));
+                throw new ArgumentException("Nome de usuario não pode ser vazio.", nameof(username));
 
-            var requestUri = $"https://api.github.com/users/{Uri.EscapeDataString(username)}/repos";
-            var response = await _httpClient.GetAsync(requestUri);
+            FileLogger.Log($"Iniciando busca de repositorios do usuario: '{username}'");
 
-            if (!response.IsSuccessStatusCode)
-                throw new HttpRequestException($"Erro ao buscar repositórios do usuário: {response.StatusCode}");
-
-            var json = await response.Content.ReadAsStringAsync();
-
-            Console.WriteLine(json);
-
-            var repoItems = JsonSerializer.Deserialize<List<GitHubRepoItem>>(json,
-                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-
-            var list = new List<Repository>();
-
-            foreach (var item in repoItems ?? new List<GitHubRepoItem>())
+            try
             {
-                if (string.IsNullOrWhiteSpace(item.name) || string.IsNullOrWhiteSpace(item.html_url))
-                    continue;
+                var requestUri = $"https://api.github.com/users/{Uri.EscapeDataString(username)}/repos";
+                var response = await _httpClient.GetAsync(requestUri);
 
-                list.Add(new Repository(
-                    id: item.id,
-                    name: item.name,
-                    description: item.description ?? string.Empty,
-                    htmlUrl: item.html_url,
-                    stars: item.stargazers_count,
-                    forks: item.forks_count,
-                    watchers: item.watchers_count));
+                if (!response.IsSuccessStatusCode)
+                {
+                    var errorMsg = $"Erro ao buscar repositorios do usuario: {response.StatusCode}";
+                    FileLogger.Log(errorMsg, "ERROR");
+                    throw new HttpRequestException(errorMsg);
+                }
+
+                var json = await response.Content.ReadAsStringAsync();
+
+                var repoItems = JsonSerializer.Deserialize<List<GitHubRepoItem>>(json,
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+                var list = new List<Repository>();
+
+                foreach (var item in repoItems ?? new List<GitHubRepoItem>())
+                {
+                    if (string.IsNullOrWhiteSpace(item.name) || string.IsNullOrWhiteSpace(item.html_url))
+                        continue;
+
+                    list.Add(new Repository(
+                        id: item.id,
+                        name: item.name,
+                        description: item.description ?? string.Empty,
+                        htmlUrl: item.html_url,
+                        stars: item.stargazers_count,
+                        forks: item.forks_count,
+                        watchers: item.watchers_count));
+                }
+
+                return list;
             }
-
-            return list;
+            catch (Exception ex)
+            {
+                FileLogger.LogError(ex, $"Erro na busca dos repositorios do usuario: '{username}'");
+                throw;
+            }
         }
 
         // Classes auxiliares para desserialização
